@@ -4,23 +4,28 @@
 # Source: /local/reps/CMSSW/CMSSW/Configuration/Applications/python/ConfigBuilder.py,v 
 # with command line options: skims -s SKIM:BPHSkim --dasquery=file dataset=/Charmonium/Run2016B-PromptReco-v1/AOD -n -1 --data --conditions auto:com10 --python_filename=crab-skim.py --processName=BPHSkim --no_exec
 
+#2020.10.10 Jinfeng
+#Merge the Ntuple part into this file
 import FWCore.ParameterSet.Config as cms
 
 process = cms.Process('NtupleMaker')
 
 # import of standard configurations
-process.load('FWCore.MessageService.MessageLogger_cfi')
 process.load("TrackingTools/TransientTrack/TransientTrackBuilder_cfi")
+# process.load("TrackingTools/TransientTrack/TransientTrackBuilder_cfi")
+process.load("Configuration.StandardSequences.MagneticField_AutoFromDBCurrent_cff")
+process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_cff')
+
 process.load('Configuration.StandardSequences.Services_cff')
 process.load('SimGeneral.HepPDTESSource.pythiapdt_cfi')
+process.load('FWCore.MessageService.MessageLogger_cfi')
 process.load('Configuration.EventContent.EventContent_cff')
 process.load('Configuration.StandardSequences.GeometryRecoDB_cff')
-process.load("Configuration.StandardSequences.MagneticField_AutoFromDBCurrent_cff")
-process.load("Configuration.StandardSequences.Reconstruction_cff")
+process.load('Configuration.StandardSequences.MagneticField_AutoFromDBCurrent_cff')
 process.load('Configuration.StandardSequences.Skims_cff')
-process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_condDBv2_cff')
-# process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_cff')
-# process.load("FWCore.MessageLogger.MessageLogger_cfi")
+process.load('Configuration.StandardSequences.FrontierConditions_GlobalTag_cff')
+
+process.load("FWCore.MessageLogger.MessageLogger_cfi")
 
 process.maxEvents = cms.untracked.PSet(
     input = cms.untracked.int32(-1)
@@ -29,24 +34,117 @@ process.maxEvents = cms.untracked.PSet(
 # Input source
 process.source = cms.Source("PoolSource",
     fileNames = cms.untracked.vstring(
-        # '/store/data/Run2018C/Charmonium/MINIAOD/UL2018_MiniAODv2_BParking-v1/2520000/03BA1A06-DA13-DD4B-B295-345D3D71021D.root'
-        # '/store/data/Run2018B/Charmonium/MINIAOD/UL2018_MiniAODv2_BParking-v1/2520000/02D12A94-4055-504E-9ADD-816EF71D2F58.root'
-        # '/store/data/Run2018A/Charmonium/MINIAOD/15Feb2022_UL2018-v1/2820000/000CB244-FD5D-AE42-B487-02E61BEED1F1.root'
-    ),
+#'/store/data/Run2018A/Charmonium/AOD/12Nov2019_UL2018_rsb-v1/10000/00627628-7946-6F4A-AB13-6A2A223FC1E7.root'	
+'file:/eos/home-c/chensh/JPsiPsi2s/SKIM_tightfilter/SPS/ULPythia2018/CMSSW_10_6_20/src/NtupleMaker/NtupleMaker/test/BPHSkim_1.root'
+),
     secondaryFileNames = cms.untracked.vstring()
 )
 
 process.TFileService = cms.Service("TFileService",
-        fileName = cms.string('Ntuple_2018_B.root'),
+        fileName = cms.string('Ntuple_2018_DPS.root'),
 )
 
-process.options = cms.untracked.PSet(wantSummary = cms.untracked.bool(True), SkipEvent = cms.untracked.vstring('ProductNotFound'))
+process.options = cms.untracked.PSet( wantSummary = cms.untracked.bool(True))
+
+# Production Info
+# process.configurationMetadata = cms.untracked.PSet(
+#     annotation = cms.untracked.string('skims nevts:-1'),
+#     name = cms.untracked.string('Applications'),
+#     version = cms.untracked.string('$Revision: 1.19 $')
+# )
+
+# Output definition
+
+# process.RECOSIMoutput = cms.OutputModule("PoolOutputModule",
+#     dataset = cms.untracked.PSet(
+#         dataTier = cms.untracked.string(''),
+#         filterName = cms.untracked.string('')
+#     ),
+#     eventAutoFlushCompressedSize = cms.untracked.int32(5242880),
+#     fileName = cms.untracked.string('skims_SKIM.root'),
+#     outputCommands = process.RECOSIMEventContent.outputCommands,
+#     splitLevel = cms.untracked.int32(0)
+# )
+
+process.BPHSkimSequence = cms.Sequence(process.oniaPATMuonsWithoutTrigger*process.oniaSelectedMuons*process.onia2MuMuPAT)
+
+# Additional output definition
+# process.SKIMStreamBPHSkim = cms.OutputModule("PoolOutputModule",
+#     SelectEvents = cms.untracked.PSet(
+#         SelectEvents = cms.vstring('BPHSkimPath')
+#     ),
+#     dataset = cms.untracked.PSet(
+#         dataTier = cms.untracked.string('USER'),
+#         filterName = cms.untracked.string('BPHSkim')
+#     ),
+#     eventAutoFlushCompressedSize = cms.untracked.int32(5242880),
+#     fileName = cms.untracked.string('BPHSkim_UL.root'),
+#     outputCommands = cms.untracked.vstring('keep *','drop *_MEtoEDMConverter_*_*',
+#     'drop *_*Stage2Digis_*_*',
+#     'drop *_ak*_*_*',
+#     'drop CTPPS*_*_*_*',
+#     'drop *_dedx*_*_*',
+#     'drop Hcal*_*_*_*',
+#     'drop *_cmsTopTagPFJetsCHS_*_*',
+#     'drop recoJetedmRefToBase*_*_*_*',
+#     'drop Totem*_*_*_*',
+#     'drop recoPFTauDiscriminator_*_*_*',
+#     'drop *_selectDigi_*_*',
+#     'drop recoBasicJets_*_*_*',
+#     'drop recoPFJets*_*_*_*',
+#     'drop recoPFMETs*_*_*_*',
+#     'drop recoPFTaus*_*_*_*',
+#     'drop recPreshowerCluster*_*_*_*',
+#  )
+# )
 
 # Other statements
-from Configuration.AlCa.GlobalTag_condDBv2 import GlobalTag
-process.GlobalTag = GlobalTag(process.GlobalTag, '106X_dataRun2_v32', '')# MINIAOD
+from Configuration.AlCa.GlobalTag import GlobalTag
+process.GlobalTag = GlobalTag(process.GlobalTag, '106X_upgrade2018_realistic_v11_L1v1', '')		#for UL data 106X_dataRun2_v32
+
+process.oniaSelectedMuons.cut = cms.string(''
+#                    'muonID(\"TMOneStationTight\")'
+#                    ' && abs(innerTrack.dxy) < 0.3'
+#                    ' && abs(innerTrack.dz)  < 20.'
+#                    ' && innerTrack.hitPattern.trackerLayersWithMeasurement > 5'
+#                    ' && innerTrack.hitPattern.pixelLayersWithMeasurement > 0'
+#                    ' && innerTrack.quality(\"highPurity\")'
+#                    ' && (abs(eta) <= 2.5 && pt > 1.8)'
+)
+
+#process.onia2MuMuPAT.muons=cms.InputTag('oniaPATMuonsWithoutTrigger')
+process.onia2MuMuPAT.higherPuritySelection = cms.string("(isGlobalMuon || isTrackerMuon || (innerTrack.isNonnull && genParticleRef(0).isNonnull)) && abs(innerTrack.dxy)<4 && abs(innerTrack.dz)<35 && muonID('TrackerMuonArbitrated')")
+process.onia2MuMuPAT.lowerPuritySelection = cms.string("(isGlobalMuon || isTrackerMuon || (innerTrack.isNonnull && genParticleRef(0).isNonnull)) && abs(innerTrack.dxy)<4 && abs(innerTrack.dz)<35 && muonID('TrackerMuonArbitrated')")
+
+#process.onia2MuMuPAT.higherPuritySelection = cms.string("")
+#process.onia2MuMuPAT.lowerPuritySelection = cms.string("")
+
+# Path and EndPath definitions
+# process.RECOSIMoutput_step = cms.EndPath(process.RECOSIMoutput)
+# process.SKIMStreamBPHSkimOutPath = cms.EndPath(process.SKIMStreamBPHSkim)
 
 # Schedule definition
+
 process.load('NtupleMaker.NtupleMaker.NtupleMaker_cfi')
 process.p = cms.Path(process.rootuple)
-process.schedule = cms.Schedule(process.p)
+process.schedule = cms.Schedule(process.BPHSkimPath, process.p)
+
+# process.rootuple.upsilon_mass = cms.double(3.0969)
+# process.rootuple.triggerCuts = cms.uint32(73)
+# process.rootuple.isMC = cms.bool(False)                 # is mc?
+# process.rootuple.onia_mass_cuts = cms.vdouble(0.1,100)    # you may need to adjust this
+
+
+# Schedule definition
+#process.schedule = cms.Schedule(process.BPHSkimPath,process.RECOSIMoutput_step,process.SKIMStreamBPHSkimOutPath)
+#from PhysicsTools.PatAlgos.tools.helpers import associatePatAlgosToolsTask
+#associatePatAlgosToolsTask(process)
+
+
+# Customisation from command line
+
+# Add early deletion of temporary data products to reduce peak memory need
+#from Configuration.StandardSequences.earlyDeleteSettings_cff import customiseEarlyDelete
+#process = customiseEarlyDelete(process)
+# End adding early deletion
+

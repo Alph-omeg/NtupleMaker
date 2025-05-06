@@ -1,5 +1,5 @@
 # NtupleMaker
-This program is dedicated to analyzing `Run2 MINIAOD` charmomium data and runs under `CMSSW_10_6_20`
+This program is dedicated to analyzing `Run2 AOD` charmomium data and runs under `CMSSW_10_6_20`
 
 ## 1. Implementation
 The program uses PAT level information to reconstruct $pp\to J/\psi+\psi(2S)$ event and record necessary variables.
