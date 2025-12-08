@@ -68,6 +68,7 @@
 #include "TTree.h"
 #include "TH2F.h"
 
+// #define MONTE_CARLO// obselete
 #define VERBOSE// switch between verbose output and concise output
 #ifdef VERBOSE
     #define vout cout
@@ -101,7 +102,8 @@ class NtupleMaker: public edm::EDAnalyzer {
     private:
         bool triggerMatch(const edm::Event &iEvent, const edm::Handle<edm::TriggerResults>& hltR, pat::Muon& muon, enum TrgLabel flag);
         void fourMuonFit(const edm::Event &iEvent, const edm::Handle<edm::TriggerResults>& hltR, edm::Handle< edm::View<pat::Muon> > muons, edm::ESHandle<MagneticField> bFieldHandle, reco::BeamSpot bs, reco::Vertex thePrimaryV, edm::Handle<reco::VertexCollection>);
-        void calCtau(RefCountedKinematicVertex& decayVrtx, RefCountedKinematicParticle& kinePart, Vertex& bs, Double_t& ctau, Double_t& ctauErr);
+        void calCtau(RefCountedKinematicVertex& decayVrtx, RefCountedKinematicParticle& kinePart, Vertex& bs, Double_t& ctau, Double_t& ctauErr, Double_t& LxyPV, Double_t& sigLxy);
+        Double_t calD(RefCountedKinematicVertex decayVrtx1, RefCountedKinematicVertex decayVrtx2);
 
         virtual void beginJob();
         virtual void analyze(const edm::Event &, const edm::EventSetup &);
@@ -112,41 +114,45 @@ class NtupleMaker: public edm::EDAnalyzer {
         virtual void beginLuminosityBlock(edm::LuminosityBlock const &, edm::EventSetup const &);
         virtual void endLuminosityBlock(edm::LuminosityBlock const &, edm::EventSetup const &);
 		// ----------member data ---------------------------
+        // edm::EDGetTokenT<pat::CompositeCandidateCollection> dimuon_Label;
+		// edm::EDGetTokenT<pat::CompositeCandidateCollection> conversion_Label;
 		edm::EDGetTokenT<reco::VertexCollection> primaryVertices_Label;
 		edm::EDGetTokenT<reco::BeamSpot> bs_Label;
 		edm::EDGetTokenT<edm::View<pat::Muon>> muon_Label;
 		edm::EDGetTokenT<edm::TriggerResults> triggerResultsTok_;
         edm::EDGetTokenT<trigger::TriggerEvent> triggerEventTok_;
-
+        //edm::EDGetTokenT<pat::TriggerObjectStandAloneCollection> triggerObjects_;
         // RECO level muon
         vector<Double_t> REmu_pt, REmu_eta, REmu_phi, REmu_mass;
         vector<bool> REmu_isSoft, REmu_passCut;
         // RECO level J/psi
-        vector<Double_t> REJpsi_pt, REJpsi_eta, REJpsi_phi, REJpsi_mass, REJpsi_massErr, REJpsi_vtxProb, REJpsi_cstrVtxProb, REJpsi_ctau, REJpsi_ctauErr;
+        vector<Double_t> REJpsi_pt, REJpsi_eta, REJpsi_y, REJpsi_phi, REJpsi_mass, REJpsi_massErr, REJpsi_vtxProb, REJpsi_cstrVtxProb,
+        REJpsi_ctau, REJpsi_ctauErr, REJpsi_LxyPV, REJpsi_sigLxy;
         vector<int> REJpsi_muId1, REJpsi_muId2;
         vector<bool> REJpsi_passCut;
         // RECO level psi(2S)
-        vector<Double_t> REpsi2S_pt, REpsi2S_eta, REpsi2S_phi, REpsi2S_mass, REpsi2S_massErr, REpsi2S_vtxProb, REpsi2S_cstrVtxProb, REpsi2S_ctau, REpsi2S_ctauErr;
+        vector<Double_t> REpsi2S_pt, REpsi2S_eta, REpsi2S_y, REpsi2S_phi, REpsi2S_mass, REpsi2S_massErr, REpsi2S_vtxProb, REpsi2S_cstrVtxProb,
+        REpsi2S_ctau, REpsi2S_ctauErr, REpsi2S_LxyPV, REpsi2S_sigLxy;
         vector<int> REpsi2S_muId1, REpsi2S_muId2;
         vector<bool> REpsi2S_passCut;
         // RECO level event
-        vector<Double_t> REevt_fourMuMass, REevt_massChisq, REevt_vtxProb, REevt_L1muPtMax;
+        vector<double> REevt_x, REevt_y, REevt_z;
+        vector<Double_t> REevt_fourMuMass, REevt_massChisq, REevt_vtxProb, REevt_L1muPtMax, REevt_d;
         vector<int> REevt_JpsiId, REevt_psi2SId;
-        vector<bool> REevt_passHLT, REevt_matchTrg;
+        vector<bool> REevt_passHLT, REevt_matchTrg, REevt_fourMuFit, REevt_twoDimuFit;
 
-        bool evtPassHLT, hasMatchEvt;
-        // some counters for cut flow
+        bool evtPassHLT, fillThisEvt;
         int Total_events_analyzed;
         int Total_events_triggered;
         int Total_events_trg_matched;
-        
+        // some counters for cut flow
 		ULong64_t run;
 		ULong64_t lumi;
         ULong64_t event;
-        vector<Float_t> primaryVtx;
  
         string hltName_;
         string triggerName_;
+        
         vector<string> triggerList;
         HLTConfigProvider hltConfig_;
 		TTree *onia_tree;
@@ -155,10 +161,13 @@ class NtupleMaker: public edm::EDAnalyzer {
 // constructors and destructor
 //
 NtupleMaker::NtupleMaker(const edm::ParameterSet & iConfig):
+    // dimuon_Label(consumes<pat::CompositeCandidateCollection>(iConfig.getParameter< edm::InputTag>("dimuons"))),
+    // conversion_Label(consumes<pat::CompositeCandidateCollection>(iConfig.getParameter< edm::InputTag>("conversions"))),
     primaryVertices_Label(consumes<reco::VertexCollection>(iConfig.getParameter< edm::InputTag>("primaryVertices"))),
     bs_Label(consumes<reco::BeamSpot>(iConfig.getParameter<edm::InputTag>("offlineBeamSpot"))),
     muon_Label(consumes<edm::View<pat::Muon>>(iConfig.getParameter< edm::InputTag>("muons"))),
     triggerResultsTok_(consumes<edm::TriggerResults>(iConfig.getParameter<edm::InputTag>("TriggerResults"))),
+    // triggerEventTok_(consumes<trigger::TriggerEvent>(iConfig.getParameter<edm::InputTag>("TriggerSummaryAOD"))),
     triggerList(iConfig.getUntrackedParameter<vector<string>>("triggerList")) {
 	
     edm::Service <TFileService> fs;
@@ -184,6 +193,7 @@ NtupleMaker::NtupleMaker(const edm::ParameterSet & iConfig):
     // RECO level J/psi
     onia_tree->Branch("REJpsi_pt", &REJpsi_pt);
     onia_tree->Branch("REJpsi_eta", &REJpsi_eta);
+    onia_tree->Branch("REJpsi_y", &REJpsi_y);
     onia_tree->Branch("REJpsi_phi", &REJpsi_phi);
     onia_tree->Branch("REJpsi_mass", &REJpsi_mass);
     onia_tree->Branch("REJpsi_massErr", &REJpsi_massErr);
@@ -191,12 +201,15 @@ NtupleMaker::NtupleMaker(const edm::ParameterSet & iConfig):
     onia_tree->Branch("REJpsi_cstrVtxProb", &REJpsi_cstrVtxProb);
     onia_tree->Branch("REJpsi_ctau", &REJpsi_ctau);
     onia_tree->Branch("REJpsi_ctauErr", &REJpsi_ctauErr);
+    onia_tree->Branch("REJpsi_LxyPV", &REJpsi_LxyPV);
+    onia_tree->Branch("REJpsi_sigLxy", &REJpsi_sigLxy);
     onia_tree->Branch("REJpsi_muId1", &REJpsi_muId1);
     onia_tree->Branch("REJpsi_muId2", &REJpsi_muId2);
     onia_tree->Branch("REJpsi_passCut", &REJpsi_passCut);
     // RECO level psi(2S)
     onia_tree->Branch("REpsi2S_pt", &REpsi2S_pt);
     onia_tree->Branch("REpsi2S_eta", &REpsi2S_eta);
+    onia_tree->Branch("REpsi2S_y", &REpsi2S_y);
     onia_tree->Branch("REpsi2S_phi", &REpsi2S_phi);
     onia_tree->Branch("REpsi2S_mass", &REpsi2S_mass);
     onia_tree->Branch("REpsi2S_massErr", &REpsi2S_massErr);
@@ -204,20 +217,26 @@ NtupleMaker::NtupleMaker(const edm::ParameterSet & iConfig):
     onia_tree->Branch("REpsi2S_cstrVtxProb", &REpsi2S_cstrVtxProb);
     onia_tree->Branch("REpsi2S_ctau", &REpsi2S_ctau);
     onia_tree->Branch("REpsi2S_ctauErr", &REpsi2S_ctauErr);
+    onia_tree->Branch("REpsi2S_LxyPV", &REpsi2S_LxyPV);
+    onia_tree->Branch("REpsi2S_sigLxy", &REpsi2S_sigLxy);
     onia_tree->Branch("REpsi2S_muId1", &REpsi2S_muId1);
     onia_tree->Branch("REpsi2S_muId2", &REpsi2S_muId2);
     onia_tree->Branch("REpsi2S_passCut", &REpsi2S_passCut);
     // RECO level event
+    onia_tree->Branch("REevt_x", &REevt_x);
+    onia_tree->Branch("REevt_y", &REevt_y);
+    onia_tree->Branch("REevt_z", &REevt_z);
     onia_tree->Branch("REevt_fourMuMass", &REevt_fourMuMass);
     onia_tree->Branch("REevt_massChisq", &REevt_massChisq);
     onia_tree->Branch("REevt_vtxProb", &REevt_vtxProb);
     onia_tree->Branch("REevt_L1muPtMax", &REevt_L1muPtMax);
+    onia_tree->Branch("REevt_d", &REevt_d);
     onia_tree->Branch("REevt_JpsiId", &REevt_JpsiId);
     onia_tree->Branch("REevt_psi2SId", &REevt_psi2SId);
     onia_tree->Branch("REevt_passHLT", &REevt_passHLT);
     onia_tree->Branch("REevt_matchTrg", &REevt_matchTrg);
-
-    onia_tree->Branch("primaryVtx", &primaryVtx);
+    onia_tree->Branch("REevt_fourMuFit", &REevt_fourMuFit);
+    onia_tree->Branch("REevt_twoDimuFit", &REevt_twoDimuFit);
 }
 
 NtupleMaker::~NtupleMaker() {}
@@ -235,6 +254,11 @@ NtupleMaker::~NtupleMaker() {}
 void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSetup) {
     using namespace pat;
     Total_events_analyzed++;
+	// edm::Handle<pat::CompositeCandidateCollection> dimuons;
+	// iEvent.getByToken(dimuon_Label, dimuons);
+
+	// edm::Handle<pat::CompositeCandidateCollection> conversions;
+	// iEvent.getByToken(conversion_Label, conversions);
 
 	edm::Handle<edm::View<pat::Muon>> muons;
 	iEvent.getByToken(muon_Label, muons);
@@ -247,12 +271,27 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
 	iEvent.getByToken(bs_Label,theBeamSpot);
 	reco::BeamSpot bs = *theBeamSpot;
 
-	if(primaryVertices_handle->begin() != primaryVertices_handle->end()) thePrimaryV = reco::Vertex(*(primaryVertices_handle->begin()));
-	else thePrimaryV = reco::Vertex(bs.position(), bs.covariance3D());
-	primaryVtx.clear();
-    primaryVtx.push_back(thePrimaryV.x());
-    primaryVtx.push_back(thePrimaryV.y());
-    primaryVtx.push_back(thePrimaryV.z());
+	reco::VertexCollection primaryVertices = *primaryVertices_handle;
+    primaryVertices.push_back(reco::Vertex(bs.position(), bs.covariance3D()));
+    REevt_x.clear();
+    REevt_y.clear();
+    REevt_z.clear();
+    for(auto it = primaryVertices.begin(); it != primaryVertices.end(); ++it) {
+        REevt_x.push_back(it->x());
+        REevt_y.push_back(it->y());
+        REevt_z.push_back(it->z());
+    }
+    thePrimaryV = reco::Vertex(*(primaryVertices.begin()));
+	// if(primaryVertices_handle->begin() != primaryVertices_handle->end()) thePrimaryV = reco::Vertex(*(primaryVertices_handle->begin()));
+	// else thePrimaryV = reco::Vertex(bs.position(), bs.covariance3D());
+	/*
+        edm::Handle<reco::ConversionCollection> conversionHandle;
+        iEvent.getByLabel(conversion_Label,conversionHandle);
+
+        edm::Handle<reco::PFCandidateCollection> pfcandidates;
+        iEvent.getByLabel("particleFlow",pfcandidates);
+        const reco::PFCandidateCollection pfphotons = selectPFPhotons(*pfcandidates);
+	*/
 
     edm::Handle<edm::TriggerResults> hltR;
     iEvent.getByToken(triggerResultsTok_, hltR);
@@ -290,17 +329,21 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
     REmu_passCut.clear();
     REJpsi_pt.clear();
     REJpsi_eta.clear();
+    REJpsi_y.clear();
     REJpsi_phi.clear();
     REJpsi_mass.clear();
     REJpsi_massErr.clear();
     REJpsi_vtxProb.clear();
     REJpsi_ctau.clear();
     REJpsi_ctauErr.clear();
+    REJpsi_LxyPV.clear();
+    REJpsi_sigLxy.clear();
     REJpsi_muId1.clear();
     REJpsi_muId2.clear();
     REJpsi_passCut.clear();
     REpsi2S_pt.clear();
     REpsi2S_eta.clear();
+    REpsi2S_y.clear();
     REpsi2S_phi.clear();
     REpsi2S_mass.clear();
     REpsi2S_massErr.clear();
@@ -308,6 +351,8 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
     REpsi2S_cstrVtxProb.clear();
     REpsi2S_ctau.clear();
     REpsi2S_ctauErr.clear();
+    REpsi2S_LxyPV.clear();
+    REpsi2S_sigLxy.clear();
     REpsi2S_muId1.clear();
     REpsi2S_muId2.clear();
     REpsi2S_passCut.clear();
@@ -315,12 +360,15 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
     REevt_massChisq.clear();
     REevt_vtxProb.clear();
     REevt_L1muPtMax.clear();
+    REevt_d.clear();
     REevt_JpsiId.clear();
     REevt_psi2SId.clear();
     REevt_passHLT.clear();
     REevt_matchTrg.clear();
+    REevt_fourMuFit.clear();
+    REevt_twoDimuFit.clear();
 
-    hasMatchEvt = false;
+    fillThisEvt = false;
 
 	edm::ESHandle<MagneticField> bFieldHandle;
 	iSetup.get<IdealMagneticFieldRecord>().get(bFieldHandle);
@@ -328,7 +376,7 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
 
     fourMuonFit(iEvent, hltR, muons, bFieldHandle, bs, thePrimaryV,primaryVertices_handle);
     
-    if(hasMatchEvt) onia_tree->Fill();
+    if(fillThisEvt) onia_tree->Fill();
 }
 // ------------ method called once each job just before starting event loop  ------------
 void NtupleMaker::beginJob() {
@@ -392,7 +440,6 @@ bool NtupleMaker::triggerMatch(const edm::Event &iEvent, const edm::Handle<edm::
     }
     return false;
 }
-
 void NtupleMaker::fourMuonFit(
     const edm::Event &iEvent,
     const edm::Handle<edm::TriggerResults>& hltR,
@@ -420,6 +467,7 @@ void NtupleMaker::fourMuonFit(
     if(nSelMuon < 4) return;
     // combinition of muons
     KinematicConstraint *JpsiMassCons = new MassKinematicConstraint(JpsiMass, JpsiSigma), *psi2SMassCons = new MassKinematicConstraint(psi2SMass, psi2SSigma);
+    vector<RefCountedKinematicTree> JpsiVtxTrees, psi2SVtxTrees;// Save J/psi,psi(2S) vertex tree
     for(int i = 0; i < nSelMuon; i++) {
         if(!REmu_passCut[i]) continue;
         for(int j = i + 1; j < nSelMuon; j++) {
@@ -451,18 +499,16 @@ void NtupleMaker::fourMuonFit(
             Double_t dimuonMassErr = sqrt(vFitDimuState.kinematicParametersError().matrix()(6,6));   
             Double_t dimuonVtxProb = ChiSquaredProbability((double)(vFitVertex->chiSquared()), (double)(vFitVertex->degreesOfFreedom()));
             vout<<"Vertex fit probability: "<<dimuonVtxProb<<endl;
-            bool matchJpsi = dimuonMass > 2.7 && dimuonMass < 3.5;
-            bool matchpsi2S = dimuonMass > 3.3 && dimuonMass < 4.1;
             TLorentzVector temp_dimuLV;
             temp_dimuLV.SetPxPyPzE(vFitDimuState.globalMomentum().x(), vFitDimuState.globalMomentum().y(), vFitDimuState.globalMomentum().z(), vFitDimuState.kinematicParameters().energy());
-            Double_t ctau, ctauErr;
-            calCtau(vFitVertex, vFitDimu, thePrimaryV, ctau, ctauErr);
+            Double_t ctau, ctauErr, LxyPV, sigLxy;
+            calCtau(vFitVertex, vFitDimu, thePrimaryV, ctau, ctauErr, LxyPV, sigLxy);
             int muId1 = i, muId2 = i;
             if(REmu_pt[i] > REmu_pt[j]) muId2 = j;
             else muId1 = j;
-            bool dimuCutPartial = dimuonVtxProb > 0.005 && temp_dimuLV.Pt() > 5 && fabs(temp_dimuLV.Eta()) < 2;
+            bool dimuCutPartial = dimuonVtxProb > 0.005 && temp_dimuLV.Pt() > 5 && fabs(temp_dimuLV.Rapidity()) < 2;
             // dimuon vertex fit with mass constraint
-            if(matchJpsi) {
+            if(dimuonMass > 2.7 && dimuonMass < 3.5) {// Current dimuon matches J/psi
                 KinematicParticleFitter massConstraintFitter;
                 RefCountedKinematicTree JpsiVtxFitTree = massConstraintFitter.fit(JpsiMassCons, dimuonVtxFitTree);
                 Double_t JpsiCstrVtxProb = 0;
@@ -474,6 +520,7 @@ void NtupleMaker::fourMuonFit(
                 }
                 REJpsi_pt.push_back(temp_dimuLV.Pt());
                 REJpsi_eta.push_back(temp_dimuLV.Eta());
+                REJpsi_y.push_back(temp_dimuLV.Rapidity());
                 REJpsi_phi.push_back(temp_dimuLV.Phi());
                 REJpsi_mass.push_back(dimuonMass);
                 REJpsi_massErr.push_back(dimuonMassErr);
@@ -481,11 +528,14 @@ void NtupleMaker::fourMuonFit(
                 REJpsi_cstrVtxProb.push_back(JpsiCstrVtxProb);
                 REJpsi_ctau.push_back(ctau);
                 REJpsi_ctauErr.push_back(ctauErr);
+                REJpsi_LxyPV.push_back(LxyPV);
+                REJpsi_sigLxy.push_back(sigLxy);
                 REJpsi_muId1.push_back(muId1);
                 REJpsi_muId2.push_back(muId2);
-                REJpsi_passCut.push_back(dimuCutPartial && dimuonMass > 2.85 && dimuonMass < 3.35);
+                REJpsi_passCut.push_back(dimuCutPartial && dimuonMass > 2.95 && dimuonMass < 3.25);
+                JpsiVtxTrees.push_back(dimuonVtxFitTree);// Save J/psi vertex tree
             }
-            if(matchpsi2S) {
+            if(dimuonMass > 3.3 && dimuonMass < 4.1) {// Current dimuon matches psi(2S)
                 KinematicParticleFitter massConstraintFitter;
                 RefCountedKinematicTree psi2SVtxFitTree = massConstraintFitter.fit(psi2SMassCons, dimuonVtxFitTree);
                 Double_t psi2SCstrVtxProb = 0;
@@ -497,6 +547,7 @@ void NtupleMaker::fourMuonFit(
                 }
                 REpsi2S_pt.push_back(temp_dimuLV.Pt());
                 REpsi2S_eta.push_back(temp_dimuLV.Eta());
+                REpsi2S_y.push_back(temp_dimuLV.Rapidity());
                 REpsi2S_phi.push_back(temp_dimuLV.Phi());
                 REpsi2S_mass.push_back(dimuonMass);
                 REpsi2S_massErr.push_back(dimuonMassErr);
@@ -504,17 +555,21 @@ void NtupleMaker::fourMuonFit(
                 REpsi2S_cstrVtxProb.push_back(psi2SCstrVtxProb);
                 REpsi2S_ctau.push_back(ctau);
                 REpsi2S_ctauErr.push_back(ctauErr);
+                REpsi2S_LxyPV.push_back(LxyPV);
+                REpsi2S_sigLxy.push_back(sigLxy);
                 REpsi2S_muId1.push_back(muId1);
                 REpsi2S_muId2.push_back(muId2);
                 REpsi2S_passCut.push_back(dimuCutPartial && dimuonMass > 3.35 && dimuonMass < 4.05);
+                psi2SVtxTrees.push_back(dimuonVtxFitTree);// Save psi(2S) vertex tree
             }
         }
     }
     int nJpsi = REJpsi_pt.size(), npsi2S = REpsi2S_pt.size();
     vout<<"In this event: ["<<nJpsi<<"] J/psi, ["<<npsi2S<<"] psi(2S)"<<endl;
     if(!nJpsi || !npsi2S) return;
+    fillThisEvt = true;
     // check HLT
-    if (evtPassHLT) {vout<<"Event passed trigger selection"<<endl;}
+    if (evtPassHLT) vout<<"Event passed trigger selection"<<endl;
     else return;
     // four muon vertex fit and trigger matching
     for(int i = 0; i < nJpsi; i++) {
@@ -524,67 +579,93 @@ void NtupleMaker::fourMuonFit(
             if(!REpsi2S_passCut[j]) continue;
             int j1 = REpsi2S_muId1[j], j2 = REpsi2S_muId2[j];
             if(i1 == j1 || i1 == j2 || i2 == j1 || i2 == j2) continue;
-            // four muon vertex fit
-            reco::TransientTrack muoni1TrsTrack(selMuons[i1].track(), &(*bFieldHandle));
-            reco::TransientTrack muoni2TrsTrack(selMuons[i2].track(), &(*bFieldHandle));
-            reco::TransientTrack muonj1TrsTrack(selMuons[j1].track(), &(*bFieldHandle));
-            reco::TransientTrack muonj2TrsTrack(selMuons[j2].track(), &(*bFieldHandle));
-            KinematicParticleFactoryFromTransientTrack factory;
-            vector<RefCountedKinematicParticle> fitMuons;
-            fitMuons.push_back(factory.particle(muoni1TrsTrack, muonMass, 0., 0., muonSigma));
-            fitMuons.push_back(factory.particle(muoni2TrsTrack, muonMass, 0., 0., muonSigma));
-            fitMuons.push_back(factory.particle(muonj1TrsTrack, muonMass, 0., 0., muonSigma));
-            fitMuons.push_back(factory.particle(muonj2TrsTrack, muonMass, 0., 0., muonSigma));
-            KinematicParticleVertexFitter fourMuFitter;
-            RefCountedKinematicTree fourMuVtxFitTree;
-            fourMuVtxFitTree = fourMuFitter.fit(fitMuons);
-            if(fourMuVtxFitTree->isEmpty()) continue;
-            fourMuVtxFitTree->movePointerToTheTop();
-            RefCountedKinematicParticle fourMu = fourMuVtxFitTree->currentParticle();
-            RefCountedKinematicVertex fourMuVtx = fourMuVtxFitTree->currentDecayVertex();
-            Double_t fourMuMass = fourMu->currentState().mass();
-            Double_t fourMuVtxProb = ChiSquaredProbability((double)(fourMuVtx->chiSquared()), (double)(fourMuVtx->degreesOfFreedom()));
-            vout<<"Four-muon vertex probability: "<<fourMuVtxProb<<endl;
-            if(fourMuMass < 7.5) continue;
+            RefCountedKinematicTree JpsiVtxTree = JpsiVtxTrees[i], psi2SVtxTree = psi2SVtxTrees[j];
+            JpsiVtxTree->movePointerToTheTop();
+            psi2SVtxTree->movePointerToTheTop();
             // trigger matching
             int nVtxMuon = triggerMatch(iEvent, hltR, selMuons[i1], Vtx) + triggerMatch(iEvent, hltR, selMuons[i2], Vtx);
             int nL3Muon = triggerMatch(iEvent, hltR, selMuons[j1], L3) + triggerMatch(iEvent, hltR, selMuons[j2], L3);
             bool evtTrgMatch = nVtxMuon >= 2 && nL3Muon >= 1;
             if(evtTrgMatch) {
                 Total_events_trg_matched++;
-                hasMatchEvt = true;
+                // fillThisEvt = true;
             }
+            // Four muon vertex fit, 2 methods provided
+            // Method 1: fit 4 muons altogether
+            vector<RefCountedKinematicParticle> fitMuons;
+            reco::TransientTrack muoni1TrsTrack(selMuons[i1].track(), &(*bFieldHandle));
+            reco::TransientTrack muoni2TrsTrack(selMuons[i2].track(), &(*bFieldHandle));
+            reco::TransientTrack muonj1TrsTrack(selMuons[j1].track(), &(*bFieldHandle));
+            reco::TransientTrack muonj2TrsTrack(selMuons[j2].track(), &(*bFieldHandle));
+            KinematicParticleFactoryFromTransientTrack factory;
+            fitMuons.push_back(factory.particle(muoni1TrsTrack, muonMass, 0., 0., muonSigma));
+            fitMuons.push_back(factory.particle(muoni2TrsTrack, muonMass, 0., 0., muonSigma));
+            fitMuons.push_back(factory.particle(muonj1TrsTrack, muonMass, 0., 0., muonSigma));
+            fitMuons.push_back(factory.particle(muonj2TrsTrack, muonMass, 0., 0., muonSigma));
+            KinematicParticleVertexFitter fourMuFitter;
+            RefCountedKinematicTree fourMuVtxFitTree = fourMuFitter.fit(fitMuons);
+            Double_t fourMuMass = 0, fourMuVtxProb = -1;
+            bool passFitFourMu = !fourMuVtxFitTree->isEmpty();
+            if(passFitFourMu) {
+                fourMuVtxFitTree->movePointerToTheTop();
+                RefCountedKinematicParticle fourMu = fourMuVtxFitTree->currentParticle();
+                if(fourMu->currentState().isValid()) fourMuMass = fourMu->currentState().mass();
+                RefCountedKinematicVertex fourMuVtx = fourMuVtxFitTree->currentDecayVertex();
+                if(fourMuVtx->vertexIsValid()) fourMuVtxProb = ChiSquaredProbability((double)(fourMuVtx->chiSquared()), (double)(fourMuVtx->degreesOfFreedom()));
+            }
+            vout<<"Four-muon vertex probability: "<<fourMuVtxProb<<endl;
+            // Method 2: split into 2 dimuons
+            vector<RefCountedKinematicParticle> fitDimus;
+            RefCountedKinematicParticle JpsiVtx = JpsiVtxTree->currentParticle(), psi2SVtx = psi2SVtxTree->currentParticle();
+            fitDimus.push_back(JpsiVtx);
+            fitDimus.push_back(psi2SVtx);
+            KinematicParticleVertexFitter twoDimuFitter;
+            RefCountedKinematicTree twoDimuVtxFitTree = twoDimuFitter.fit(fitDimus);
+            bool passFitDimu = !twoDimuVtxFitTree->isEmpty();
+            // Handel output variables
             vector<Double_t> temp_L1muPt;
             if(triggerMatch(iEvent, hltR, selMuons[i1], L1)) temp_L1muPt.push_back(REmu_pt[i1]);
             if(triggerMatch(iEvent, hltR, selMuons[i2], L1)) temp_L1muPt.push_back(REmu_pt[i2]);
             if(triggerMatch(iEvent, hltR, selMuons[j1], L1)) temp_L1muPt.push_back(REmu_pt[j1]);
             if(triggerMatch(iEvent, hltR, selMuons[j2], L1)) temp_L1muPt.push_back(REmu_pt[j2]);
             Double_t temp_L1muPtMax = temp_L1muPt.empty() ? 0 : *max_element(temp_L1muPt.begin(), temp_L1muPt.end());
+            Double_t d = calD(JpsiVtxTree->currentDecayVertex(), psi2SVtxTree->currentDecayVertex());
             Double_t massChisq = SQUARE((REJpsi_mass[i] - JpsiMass) / REJpsi_massErr[i]) + SQUARE((REpsi2S_mass[j] - psi2SMass) / REpsi2S_massErr[j]);
             int pos = lower_bound(REevt_massChisq.begin(), REevt_massChisq.end(), massChisq, greater<Double_t>()) - REevt_massChisq.begin();
             REevt_fourMuMass.insert(REevt_fourMuMass.begin() + pos, fourMuMass);
             REevt_massChisq.insert(REevt_massChisq.begin() + pos, massChisq);
             REevt_vtxProb.insert(REevt_vtxProb.begin() + pos, fourMuVtxProb);
             REevt_L1muPtMax.insert(REevt_L1muPtMax.begin() + pos, temp_L1muPtMax);
+            REevt_d.insert(REevt_d.begin() + pos, d);
             REevt_JpsiId.insert(REevt_JpsiId.begin() + pos, i);
             REevt_psi2SId.insert(REevt_psi2SId.begin() + pos, j);
             REevt_passHLT.insert(REevt_passHLT.begin() + pos, evtPassHLT);
             REevt_matchTrg.insert(REevt_matchTrg.begin() + pos, evtTrgMatch);
+            REevt_fourMuFit.insert(REevt_fourMuFit.begin() + pos, passFitFourMu);
+            REevt_twoDimuFit.insert(REevt_twoDimuFit.begin() + pos, passFitDimu);
         }
     }
     return;
 }
 
-void NtupleMaker::calCtau(RefCountedKinematicVertex& decayVrtx, RefCountedKinematicParticle& kinePart, Vertex& bs, Double_t& ctau, Double_t& ctauErr) {
+void NtupleMaker::calCtau(RefCountedKinematicVertex& decayVrtx, RefCountedKinematicParticle& kinePart, Vertex& bs,
+    Double_t& ctau, Double_t& ctauErr, Double_t& LxyPV, Double_t& sigLxy) {
     TVector3 vtx(decayVrtx->position().x(), decayVrtx->position().y(), 0);
     TVector3 pvtx(bs.position().x(), bs.position().y(), 0);
     TVector3 pperp(kinePart->currentState().globalMomentum().x(), kinePart->currentState().globalMomentum().y(), 0);
     TVector3 vdiff = vtx - pvtx;
-    double LxyPV = vdiff.Dot(pperp) / pperp.Mag();
+    LxyPV = vdiff.Dot(pperp) / pperp.Mag();
     ctau = LxyPV * kinePart->currentState().mass() / pperp.Perp();
 
     GlobalError DecayErr = decayVrtx->error();
     GlobalError PrimaryErr = bs.error();
+    AlgebraicVector3 vdiffp;
+    vdiffp[0] = vdiff.x();
+    vdiffp[1] = vdiff.y();
+    vdiffp[2] = 0;
+    double LxyErr2 = ROOT::Math::Similarity((AlgebraicSymMatrix33)(DecayErr.matrix() + PrimaryErr.matrix()), vdiffp);
+    double cosAlpha = vdiff.Dot(pperp) / (vdiff.Perp() * pperp.Perp());
+    sigLxy = LxyPV / (TMath::Sqrt(LxyErr2) / vdiff.Perp() * cosAlpha);
     AlgebraicVector vpperp(3);
     vpperp[0] = pperp.x();
     vpperp[1] = pperp.y();
@@ -593,6 +674,20 @@ void NtupleMaker::calCtau(RefCountedKinematicVertex& decayVrtx, RefCountedKinema
     ctauErr = sqrt(vXYe.similarity(vpperp)) * kinePart->currentState().mass() / (pperp.Perp2());
     
     return;
+}
+
+Double_t NtupleMaker::calD(RefCountedKinematicVertex decayVrtx1, RefCountedKinematicVertex decayVrtx2) {
+    TVector3 vperp;
+    vperp.SetXYZ(decayVrtx1->position().x() - decayVrtx2->position().x(), decayVrtx1->position().y() - decayVrtx2->position().y(), 0);
+    double dist = vperp.Perp();
+    GlobalError DecayErr1 = decayVrtx1->error();
+    GlobalError DecayErr2 = decayVrtx2->error();
+    AlgebraicVector3 aperp;
+    aperp[0] = vperp.x();
+    aperp[1] = vperp.y();
+    aperp[2] = 0;
+    double DistanceErr2 = ROOT::Math::Similarity((AlgebraicSymMatrix33)(DecayErr1.matrix() + DecayErr2.matrix()), aperp);
+    return dist / (TMath::Sqrt(DistanceErr2) / dist);
 }
 
 // define this as a plug-in
