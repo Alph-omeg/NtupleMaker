@@ -2,7 +2,7 @@
 This program is dedicated to analyzing `Run2 MINIAOD` charmomium data and runs under `CMSSW_10_6_20`
 
 ## 1. Implementation
-The program uses PAT level information to reconstruct $pp\to J/\psi+\psi(2S)$ event and record necessary variables.
+The program uses PAT level information to reconstruct $pp\to J/\psi+J/\psi$ event and record necessary variables.
 The structure of the program is as follows:
 ```bash
 ▾ NtupleMaker_repo
@@ -44,6 +44,11 @@ git clone https://github.com/Alph-omeg/NtupleMaker.git
 ```
 
 ## 3. Modify
+The following requirement in `src/BPH_NtupleMaker.py` applies for SPS process. Quote this line if dealing with DPS process.
+```c++
+// line 551
+    if(temp_JpsiMom[i] != temp_JpsiMom[j]) continue;//only for SPS
+```
 Change input(PoolSource) and output file name in `test/BPH_NtupleMaker.py`.
 ```python
 # line 31
