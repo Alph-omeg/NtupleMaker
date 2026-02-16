@@ -69,7 +69,7 @@
 #include "TH2F.h"
 
 // #define MONTE_CARLO// obselete
-#define VERBOSE// switch between verbose output and concise output
+// #define VERBOSE// switch between verbose output and concise output
 #ifdef VERBOSE
     #define vout cout
 #else
@@ -86,9 +86,7 @@ using namespace trigger;
 const float muonMass = 0.1056583;
 float muonSigma = 0.000001;// KinematicParticleFactory#@$%.particle(,,,,float&) left value ref cannot bind constants
 const float JpsiMass = 3.096900;
-const float psi2SMass = 3.686097;
 const float JpsiSigma = 0.00004;
-const float psi2SSigma = 0.00004;
 enum TrgLabel {L1, L3, Vtx};
 //
 // class declaration
@@ -101,6 +99,7 @@ class NtupleMaker: public edm::EDAnalyzer {
 
     private:
         bool triggerMatch(const edm::Event &iEvent, const edm::Handle<edm::TriggerResults>& hltR, pat::Muon& muon, enum TrgLabel flag);
+        void setGENVariables(edm::Handle<reco::GenParticleCollection> prunedgenParticles);
         void fourMuonFit(const edm::Event &iEvent, const edm::Handle<edm::TriggerResults>& hltR, edm::Handle<edm::View<pat::Muon>> muons, edm::Handle<edm::View<pat::PackedCandidate>> candidates, edm::ESHandle<MagneticField> bFieldHandle, reco::BeamSpot bs, reco::Vertex thePrimaryV, edm::Handle<reco::VertexCollection>);
         void calCtau(RefCountedKinematicVertex& decayVrtx, RefCountedKinematicParticle& kinePart, Vertex& bs, Double_t& ctau, Double_t& ctauErr, Double_t& LxyPV, Double_t& sigLxy);
         Double_t calD(RefCountedKinematicVertex decayVrtx1, RefCountedKinematicVertex decayVrtx2);
@@ -123,6 +122,21 @@ class NtupleMaker: public edm::EDAnalyzer {
         edm::EDGetTokenT<trigger::TriggerEvent> triggerEventTok_;
         edm::EDGetTokenT<edm::View<pat::PackedCandidate>> candidate_Label;
         //edm::EDGetTokenT<pat::TriggerObjectStandAloneCollection> triggerObjects_;
+        
+        // GEN level muon
+        vector<Double_t> GEmu_pt, GEmu_eta, GEmu_phi, GEmu_mass;
+        vector<int> GEmu_recoId;
+        // GEN level J/psi_1
+        Double_t GEJpsi1_pt, GEJpsi1_eta, GEJpsi1_y, GEJpsi1_phi, GEJpsi1_mass;
+        int GEJpsi1_recoId, GEJpsi1_muId1, GEJpsi1_muId2;
+        bool GEJpsi1_matchGEN, GEJpsi1_passID, GEJpsi1_passVtx;
+        // GEN level J/psi_2
+        Double_t GEJpsi2_pt, GEJpsi2_eta, GEJpsi2_y, GEJpsi2_phi, GEJpsi2_mass;
+        int GEJpsi2_recoId, GEJpsi2_muId1, GEJpsi2_muId2;
+        bool GEJpsi2_matchGEN, GEJpsi2_passID, GEJpsi2_passVtx;
+        // GEN level event
+        Double_t GEevt_fourMuMass, GEevt_muPtMax;
+        bool GEevt_valid, GEevt_passAcc, GEevt_passHLT, GEevt_matchTrg;
         // RECO level muon
         vector<Double_t> REmu_pt, REmu_eta, REmu_phi, REmu_mass;
         vector<bool> REmu_isSoft, REmu_passCut;
@@ -137,18 +151,13 @@ class NtupleMaker: public edm::EDAnalyzer {
         REJpsi_ctau, REJpsi_ctauErr, REJpsi_LxyPV, REJpsi_sigLxy, REJpsi_X, REJpsi_Y, REJpsi_Z;
         vector<int> REJpsi_muId1, REJpsi_muId2;
         vector<bool> REJpsi_passCut;
-        // RECO level psi(2S)
-        vector<Double_t> REpsi2S_pt, REpsi2S_eta, REpsi2S_y, REpsi2S_phi, REpsi2S_mass, REpsi2S_massErr, REpsi2S_vtxProb, REpsi2S_cstrVtxProb,
-        REpsi2S_ctau, REpsi2S_ctauErr, REpsi2S_LxyPV, REpsi2S_sigLxy, REpsi2S_X, REpsi2S_Y, REpsi2S_Z;
-        vector<int> REpsi2S_muId1, REpsi2S_muId2;
-        vector<bool> REpsi2S_passCut;
         // RECO level event
         vector<double> REvtx_X, REvtx_Y, REvtx_Z;
         vector<Double_t> REevt_fourMuMass, REevt_massChisq, REevt_vtxProb, REevt_L1muPtMax, REevt_d, REevt_X, REevt_Y, REevt_Z;
-        vector<int> REevt_JpsiId, REevt_psi2SId;
+        vector<int> REevt_JpsiId1, REevt_JpsiId2;
         vector<bool> REevt_passHLT, REevt_matchTrg, REevt_fourMuFit, REevt_twoDimuFit, REevt_samePV;
 
-        bool evtPassHLT, fillThisEvt;
+        bool evtPassHLT;
         int Total_events_analyzed;
         int Total_events_triggered;
         int Total_events_trg_matched;
@@ -163,6 +172,8 @@ class NtupleMaker: public edm::EDAnalyzer {
         vector<string> triggerList;
         HLTConfigProvider hltConfig_;
 		TTree *onia_tree;
+
+        edm::EDGetTokenT<reco::GenParticleCollection> prunedgenParticlesSrc_;
 };
 //
 // constructors and destructor
@@ -191,6 +202,48 @@ NtupleMaker::NtupleMaker(const edm::ParameterSet & iConfig):
     onia_tree->Branch("run", &run, "run/l");
     onia_tree->Branch("lumi", &lumi, "lumi/l");
     onia_tree->Branch("event", &event, "event/l");
+
+    // GEN level muon
+    onia_tree->Branch("GEmu_pt", &GEmu_pt);
+    onia_tree->Branch("GEmu_eta", &GEmu_eta);
+    onia_tree->Branch("GEmu_phi", &GEmu_phi);
+    onia_tree->Branch("GEmu_mass", &GEmu_mass);
+    onia_tree->Branch("GEmu_recoId", &GEmu_recoId);
+
+    // GEN level J/psi_1
+    onia_tree->Branch("GEJpsi1_pt", &GEJpsi1_pt, "GEJpsi1_pt/D");
+    onia_tree->Branch("GEJpsi1_eta", &GEJpsi1_eta, "GEJpsi1_eta/D");
+    onia_tree->Branch("GEJpsi1_y", &GEJpsi1_y, "GEJpsi1_y/D");
+    onia_tree->Branch("GEJpsi1_phi", &GEJpsi1_phi, "GEJpsi1_phi/D");
+    onia_tree->Branch("GEJpsi1_mass", &GEJpsi1_mass, "GEJpsi1_mass/D");
+    onia_tree->Branch("GEJpsi1_recoId", &GEJpsi1_recoId, "GEJpsi1_recoId/I");
+    onia_tree->Branch("GEJpsi1_muId1", &GEJpsi1_muId1, "GEJpsi1_muId1/I");
+    onia_tree->Branch("GEJpsi1_muId2", &GEJpsi1_muId2, "GEJpsi1_muId2/I");
+    onia_tree->Branch("GEJpsi1_matchGEN", &GEJpsi1_matchGEN, "GEJpsi1_matchGEN/b");
+    onia_tree->Branch("GEJpsi1_passID", &GEJpsi1_passID, "GEJpsi1_passID/b");
+    onia_tree->Branch("GEJpsi1_passVtx", &GEJpsi1_passVtx, "GEJpsi1_passVtx/b");
+
+    // GEN level J/psi_2
+    onia_tree->Branch("GEJpsi2_pt", &GEJpsi2_pt, "GEJpsi2_pt/D");
+    onia_tree->Branch("GEJpsi2_eta", &GEJpsi2_eta, "GEJpsi2_eta/D");
+    onia_tree->Branch("GEJpsi2_y", &GEJpsi2_y, "GEJpsi2_y/D");
+    onia_tree->Branch("GEJpsi2_phi", &GEJpsi2_phi, "GEJpsi2_phi/D");
+    onia_tree->Branch("GEJpsi2_mass", &GEJpsi2_mass, "GEJpsi2_mass/D");
+    onia_tree->Branch("GEJpsi2_recoId", &GEJpsi2_recoId, "GEJpsi2_recoId/I");
+    onia_tree->Branch("GEJpsi2_muId1", &GEJpsi2_muId1, "GEJpsi2_muId1/I");
+    onia_tree->Branch("GEJpsi2_muId2", &GEJpsi2_muId2, "GEJpsi2_muId2/I");
+    onia_tree->Branch("GEJpsi2_matchGEN", &GEJpsi2_matchGEN, "GEJpsi2_matchGEN/b");
+    onia_tree->Branch("GEJpsi2_passID", &GEJpsi2_passID, "GEJpsi2_passID/b");
+    onia_tree->Branch("GEJpsi2_passVtx", &GEJpsi2_passVtx, "GEJpsi2_passVtx/b");
+
+    // GEN level event
+    onia_tree->Branch("GEevt_fourMuMass", &GEevt_fourMuMass, "GEevt_fourMuMass/D");
+    onia_tree->Branch("GEevt_muPtMax", &GEevt_muPtMax, "GEevt_muPtMax/D");
+    onia_tree->Branch("GEevt_valid", &GEevt_valid, "GEevt_valid/b");
+    onia_tree->Branch("GEevt_passAcc", &GEevt_passAcc, "GEevt_passAcc/b");
+    onia_tree->Branch("GEevt_passHLT", &GEevt_passHLT, "GEevt_passHLT/b");
+    onia_tree->Branch("GEevt_matchTrg", &GEevt_matchTrg, "GEevt_matchTrg/b");
+    
     // RECO level muon
     onia_tree->Branch("REmu_pt", &REmu_pt);
     onia_tree->Branch("REmu_eta", &REmu_eta);
@@ -226,25 +279,6 @@ NtupleMaker::NtupleMaker(const edm::ParameterSet & iConfig):
     onia_tree->Branch("REJpsi_muId1", &REJpsi_muId1);
     onia_tree->Branch("REJpsi_muId2", &REJpsi_muId2);
     onia_tree->Branch("REJpsi_passCut", &REJpsi_passCut);
-    // RECO level psi(2S)
-    onia_tree->Branch("REpsi2S_pt", &REpsi2S_pt);
-    onia_tree->Branch("REpsi2S_eta", &REpsi2S_eta);
-    onia_tree->Branch("REpsi2S_y", &REpsi2S_y);
-    onia_tree->Branch("REpsi2S_phi", &REpsi2S_phi);
-    onia_tree->Branch("REpsi2S_mass", &REpsi2S_mass);
-    onia_tree->Branch("REpsi2S_massErr", &REpsi2S_massErr);
-    onia_tree->Branch("REpsi2S_vtxProb", &REpsi2S_vtxProb);
-    onia_tree->Branch("REpsi2S_cstrVtxProb", &REpsi2S_cstrVtxProb);
-    onia_tree->Branch("REpsi2S_ctau", &REpsi2S_ctau);
-    onia_tree->Branch("REpsi2S_ctauErr", &REpsi2S_ctauErr);
-    onia_tree->Branch("REpsi2S_LxyPV", &REpsi2S_LxyPV);
-    onia_tree->Branch("REpsi2S_sigLxy", &REpsi2S_sigLxy);
-    onia_tree->Branch("REpsi2S_X", &REpsi2S_X);
-    onia_tree->Branch("REpsi2S_Y", &REpsi2S_Y);
-    onia_tree->Branch("REpsi2S_Z", &REpsi2S_Z);
-    onia_tree->Branch("REpsi2S_muId1", &REpsi2S_muId1);
-    onia_tree->Branch("REpsi2S_muId2", &REpsi2S_muId2);
-    onia_tree->Branch("REpsi2S_passCut", &REpsi2S_passCut);
     // RECO level event
     onia_tree->Branch("REvtx_X", &REvtx_X);
     onia_tree->Branch("REvtx_Y", &REvtx_Y);
@@ -257,13 +291,15 @@ NtupleMaker::NtupleMaker(const edm::ParameterSet & iConfig):
     onia_tree->Branch("REevt_X", &REevt_X);
     onia_tree->Branch("REevt_Y", &REevt_Y);
     onia_tree->Branch("REevt_Z", &REevt_Z);
-    onia_tree->Branch("REevt_JpsiId", &REevt_JpsiId);
-    onia_tree->Branch("REevt_psi2SId", &REevt_psi2SId);
+    onia_tree->Branch("REevt_JpsiId1", &REevt_JpsiId1);
+    onia_tree->Branch("REevt_JpsiId2", &REevt_JpsiId2);
     onia_tree->Branch("REevt_passHLT", &REevt_passHLT);
     onia_tree->Branch("REevt_matchTrg", &REevt_matchTrg);
     onia_tree->Branch("REevt_fourMuFit", &REevt_fourMuFit);
     onia_tree->Branch("REevt_twoDimuFit", &REevt_twoDimuFit);
     onia_tree->Branch("REevt_samePV", &REevt_samePV);
+
+    prunedgenParticlesSrc_ = consumes<reco::GenParticleCollection>((edm::InputTag)"prunedGenParticles");
 }
 
 NtupleMaker::~NtupleMaker() {}
@@ -350,6 +386,19 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
     vout<<"run: "<<run<<endl;
     vout<<"lumi: "<<lumi<<endl;
     vout<<"event: "<<event<<endl;
+
+    GEmu_pt.clear();
+    GEmu_eta.clear();
+    GEmu_phi.clear();
+    GEmu_mass.clear();
+    GEmu_recoId.clear();
+
+    GEJpsi1_recoId = -1;
+    GEJpsi1_passVtx = false;
+    GEJpsi2_recoId = -1;
+    GEJpsi2_passVtx = false;
+
+    GEevt_matchTrg = false;
     
     REmu_pt.clear();
     REmu_eta.clear();
@@ -382,24 +431,7 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
     REJpsi_muId1.clear();
     REJpsi_muId2.clear();
     REJpsi_passCut.clear();
-    REpsi2S_pt.clear();
-    REpsi2S_eta.clear();
-    REpsi2S_y.clear();
-    REpsi2S_phi.clear();
-    REpsi2S_mass.clear();
-    REpsi2S_massErr.clear();
-    REpsi2S_vtxProb.clear();
-    REpsi2S_cstrVtxProb.clear();
-    REpsi2S_ctau.clear();
-    REpsi2S_ctauErr.clear();
-    REpsi2S_LxyPV.clear();
-    REpsi2S_sigLxy.clear();
-    REpsi2S_X.clear();
-    REpsi2S_Y.clear();
-    REpsi2S_Z.clear();
-    REpsi2S_muId1.clear();
-    REpsi2S_muId2.clear();
-    REpsi2S_passCut.clear();
+    
     REevt_fourMuMass.clear();
     REevt_massChisq.clear();
     REevt_vtxProb.clear();
@@ -408,23 +440,29 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
     REevt_X.clear();
     REevt_Y.clear();
     REevt_Z.clear();
-    REevt_JpsiId.clear();
-    REevt_psi2SId.clear();
+    REevt_JpsiId1.clear();
+    REevt_JpsiId2.clear();
     REevt_passHLT.clear();
     REevt_matchTrg.clear();
     REevt_fourMuFit.clear();
     REevt_twoDimuFit.clear();
     REevt_samePV.clear();
 
-    fillThisEvt = false;
-
 	edm::ESHandle<MagneticField> bFieldHandle;
 	iSetup.get<IdealMagneticFieldRecord>().get(bFieldHandle);
-    RefCountedKinematicTree tree_ups_part1;
 
+    edm::Handle<reco::GenParticleCollection> prunedgenParticles;
+    iEvent.getByToken(prunedgenParticlesSrc_, prunedgenParticles);
+
+	if(prunedgenParticles.isValid()) {
+        vout<<"setting gen variables"<<endl;    
+        setGENVariables(prunedgenParticles);
+	}
+
+    srand(time(0));
     fourMuonFit(iEvent, hltR, muons, candidates, bFieldHandle, bs, thePrimaryV,primaryVertices_handle);
     
-    if(fillThisEvt) onia_tree->Fill();
+    onia_tree->Fill();
 }
 // ------------ method called once each job just before starting event loop  ------------
 void NtupleMaker::beginJob() {
@@ -479,15 +517,82 @@ bool NtupleMaker::triggerMatch(const edm::Event &iEvent, const edm::Handle<edm::
         const vector<string>& fltLabels = trgObj.filterLabels();
         for(int j = 0; j < (int)fltLabels.size() && j < 10; j++) vout<<"Label: "<<fltLabels[j]<<endl;
         if(flag == Vtx) {
-            if(trgObj.filter("hltVertexmumuFilterJpsiMuon3p5")) return true;
+            if(trgObj.filter("hltVertexmumuFilterJpsiMuon")) return true;
         }else if(flag == L3) {
-            if(trgObj.filter("hltTripleMuL3PreFiltered222")) return true;
+            if(trgObj.filter("hltTripleMuL3PreFiltered0")) return true;
         }else if(flag == L1) {
-            if(trgObj.filter("hltL1TripleMu5SQ3SQ0OQDoubleMu53SQOSMassMax9")) return true;
+            if(trgObj.filter("hltL1sTripleMu0")) return true;
         }
     }
     return false;
 }
+void NtupleMaker::setGENVariables(edm::Handle<reco::GenParticleCollection> prunedgenParticles) {
+    vector<const reco::Candidate*> temp_Jpsi, temp_JpsiMom;
+    vector<vector<const reco::Candidate*>> temp_JpsiDau;
+    bool passAcc = true, valid = false;
+    TLorentzVector temp_fourMuLV;
+    for(auto p = prunedgenParticles->begin(); p != prunedgenParticles->end(); p++) {
+        if(p->pdgId() != 443 || p->status() != 2) continue;
+        vector<const reco::Candidate*> temp_mu;
+        for(int i = 0; i < (int)p->numberOfDaughters(); i++) {
+            const reco::Candidate *p_dau = p->daughter(i);
+            while(p_dau->status() != 1 && p_dau->daughter(0)) p_dau = p_dau->daughter(0);
+            if(fabs(p_dau->pdgId()) == 13 && p_dau->status() == 1) temp_mu.push_back(p_dau);//if daughter of J/psi is muon
+        }
+        if((int)temp_mu.size() != 2) continue;
+        temp_JpsiDau.push_back(temp_mu);
+        const reco::Candidate *Jpsi_self = &*p;
+        temp_Jpsi.push_back(Jpsi_self);
+        while(Jpsi_self->mother(0)->pdgId() == 443) Jpsi_self = Jpsi_self->mother(0);
+        temp_JpsiMom.push_back(Jpsi_self->mother(0));
+    }
+    for(int i = 0; i < (int)temp_Jpsi.size(); i++) {
+        for(int j = i + 1; j < (int)temp_Jpsi.size(); j++) {
+            if(temp_JpsiMom[i] != temp_JpsiMom[j]) continue;//only for SPS
+            valid = true;
+            for(int k = 0; k < 2; k++) {
+                GEmu_pt.push_back(temp_JpsiDau[i][k]->pt());
+                GEmu_eta.push_back(temp_JpsiDau[i][k]->eta());
+                GEmu_phi.push_back(temp_JpsiDau[i][k]->phi());
+                GEmu_mass.push_back(temp_JpsiDau[i][k]->mass());
+            }
+            for(int k = 0; k < 2; k++) {
+                GEmu_pt.push_back(temp_JpsiDau[j][k]->pt());
+                GEmu_eta.push_back(temp_JpsiDau[j][k]->eta());
+                GEmu_phi.push_back(temp_JpsiDau[j][k]->phi());
+                GEmu_mass.push_back(temp_JpsiDau[j][k]->mass());
+            }
+            GEJpsi1_pt = temp_Jpsi[i]->pt();
+            GEJpsi1_eta = temp_Jpsi[i]->eta();
+            GEJpsi1_y = temp_Jpsi[i]->rapidity();
+            GEJpsi1_phi = temp_Jpsi[i]->phi();
+            GEJpsi1_mass = temp_Jpsi[i]->mass();
+            GEJpsi1_muId1 = 0;
+            GEJpsi1_muId2 = 1;
+            GEJpsi2_pt = temp_Jpsi[j]->pt();
+            GEJpsi2_eta = temp_Jpsi[j]->eta();
+            GEJpsi2_y = temp_Jpsi[j]->rapidity();
+            GEJpsi2_phi = temp_Jpsi[j]->phi();
+            GEJpsi2_mass = temp_Jpsi[j]->mass();
+            GEJpsi2_muId1 = 2;
+            GEJpsi2_muId2 = 3;
+            break;
+        }
+        if(valid) break;
+    }
+    for(int i = 0; i < (int)GEmu_pt.size(); i++) {
+        GEmu_recoId.push_back(-1);// dummy
+        TLorentzVector temp_muLV;
+        temp_muLV.SetPtEtaPhiM(GEmu_pt[i], GEmu_eta[i], GEmu_phi[i], GEmu_mass[i]);
+        temp_fourMuLV += temp_muLV;
+        if(fabs(GEmu_eta[i]) > 2.4 || GEmu_pt[i] < 3.5) passAcc = false;
+    }
+    GEevt_valid = valid;
+    if(GEevt_valid) GEevt_fourMuMass = temp_fourMuLV.M();
+    GEevt_passAcc = passAcc;
+    vout<<"Find "<<GEmu_pt.size()<<" muons in GEN level."<<endl;
+    return;
+}// finished Gen variables
 void NtupleMaker::fourMuonFit(
     const edm::Event &iEvent,
     const edm::Handle<edm::TriggerResults>& hltR,
@@ -514,6 +619,43 @@ void NtupleMaker::fourMuonFit(
     int nSelMuon = selMuons.size();
     vout<<"Select ["<<nSelMuon<<"] global or tracker muons."<<endl;
     if(nSelMuon < 4) return;
+    // GEN matching of muons
+    vector<vector<double>> drMap;// drMap[GENid][RECOid]
+    for(int i = 0; i < (int)GEmu_pt.size(); i++) {
+        vector<double> drMapRow;
+        for(int j = 0; j < nSelMuon; j++) drMapRow.push_back(deltaR(REmu_eta[j], REmu_phi[j], GEmu_eta[i], GEmu_phi[i]));
+        drMap.push_back(drMapRow);
+    }
+    for(int i = 0; i < (int)GEmu_pt.size(); i++) {
+        for(int j = 0; j < nSelMuon; j++) vout<<drMap[i][j]<<' ';
+	vout<<endl;
+    }
+    int nMatchMuon = 0;
+    for(int i = 0; i < (int)GEmu_pt.size(); i++) {
+        double minDr = 0.03;
+        int genMuonId = -1, recoMuonId = -1;
+        for(int j = 0; j < (int)drMap.size(); j++) {
+            for(int k = 0; k < nSelMuon; k++) {
+                if(drMap[j][k] < minDr) {
+                    minDr = drMap[j][k];
+                    genMuonId = j;
+                    recoMuonId = k;
+                }
+            }
+        }
+        if(minDr == 0.03) break;
+        GEmu_recoId[genMuonId] = recoMuonId;
+        // guarantee paired GEN/RECO muon won't be chosen again.
+        for(int j = 0; j < (int)drMap.size(); j++) drMap[j][recoMuonId] = 1;
+        for(int k = 0; k < nSelMuon; k++) drMap[genMuonId][k] = 1;
+        nMatchMuon++;
+    }
+    vout<<"Find ["<<nMatchMuon<<"] Gen Matched muons."<<endl;
+    GEJpsi1_matchGEN = GEevt_valid && GEmu_recoId[GEJpsi1_muId1] != -1 && GEmu_recoId[GEJpsi1_muId2] != -1;
+    GEJpsi2_matchGEN = GEevt_valid && GEmu_recoId[GEJpsi2_muId1] != -1 && GEmu_recoId[GEJpsi2_muId2] != -1;
+    // single muon cut
+    GEJpsi1_passID = GEJpsi1_matchGEN && REmu_passCut[GEmu_recoId[GEJpsi1_muId1]] && REmu_passCut[GEmu_recoId[GEJpsi1_muId2]];
+    GEJpsi2_passID = GEJpsi2_matchGEN && REmu_passCut[GEmu_recoId[GEJpsi2_muId1]] && REmu_passCut[GEmu_recoId[GEJpsi2_muId2]];
     // relate muons to packed candidates and primary vertices
     vector<const pat::PackedCandidate*> canMuons;
     for(edm::View<pat::PackedCandidate>::const_iterator recoCand = candidates->begin(); recoCand != candidates->end(); ++recoCand) {
@@ -541,8 +683,8 @@ void NtupleMaker::fourMuonFit(
         canMuons.erase(canMuons.begin() + id);
     }
     // combinition of muons
-    KinematicConstraint *JpsiMassCons = new MassKinematicConstraint(JpsiMass, JpsiSigma), *psi2SMassCons = new MassKinematicConstraint(psi2SMass, psi2SSigma);
-    vector<RefCountedKinematicTree> JpsiVtxTrees, psi2SVtxTrees;// Save J/psi,psi(2S) vertex tree
+    KinematicConstraint *JpsiMassCons = new MassKinematicConstraint(JpsiMass, JpsiSigma);
+    vector<RefCountedKinematicTree> JpsiVtxTrees;// Save J/psi,psi(2S) vertex tree
     for(int i = 0; i < nSelMuon; i++) {
         if(!REmu_passCut[i]) continue;
         for(int j = i + 1; j < nSelMuon; j++) {
@@ -553,7 +695,7 @@ void NtupleMaker::fourMuonFit(
             selMuoniLV.SetPtEtaPhiM(REmu_pt[i], REmu_eta[i], REmu_phi[i], REmu_mass[i]);
             selMuonjLV.SetPtEtaPhiM(REmu_pt[j], REmu_eta[j], REmu_phi[j], REmu_mass[j]);
             TLorentzVector selDimuonLV = selMuoniLV + selMuonjLV;
-            if(selDimuonLV.M() < 2.7 || selDimuonLV.M() > 4.1) continue;
+            if(selDimuonLV.M() < 2.7 || selDimuonLV.M() > 3.5) continue;
             // vertex fit without mass constraint
             reco::TrackRef muonTracki = selMuons[i].track(), muonTrackj = selMuons[j].track();
             reco::TransientTrack muonTrsTracki(muonTracki, &(*bFieldHandle)), muonTrsTrackj(muonTrackj, &(*bFieldHandle));
@@ -583,93 +725,72 @@ void NtupleMaker::fourMuonFit(
             else muId1 = j;
             bool dimuCutPartial = dimuonVtxProb > 0.005 && fabs(temp_dimuLV.Pt() - 25) < 15 && fabs(temp_dimuLV.Rapidity()) < 2;//temp_dimuLV.Pt() > 5
             // dimuon vertex fit with mass constraint
-            if(dimuonMass > 2.7 && dimuonMass < 3.5) {// Current dimuon matches J/psi
-                KinematicParticleFitter massConstraintFitter;
-                RefCountedKinematicTree JpsiVtxFitTree = massConstraintFitter.fit(JpsiMassCons, dimuonVtxFitTree);
-                Double_t JpsiCstrVtxProb = 0;
-                if(JpsiVtxFitTree->isValid()) {
-                    JpsiVtxFitTree->movePointerToTheTop();
-                    RefCountedKinematicVertex vFitCstrJpsiVtx = JpsiVtxFitTree->currentDecayVertex();
-                    JpsiCstrVtxProb = ChiSquaredProbability((double)(vFitCstrJpsiVtx->chiSquared()), (double)(vFitCstrJpsiVtx->degreesOfFreedom()));
-                    vout<<"J/psi mass constrained vertex fit probability: "<<JpsiCstrVtxProb<<endl;
-                }
-                REJpsi_pt.push_back(temp_dimuLV.Pt());
-                REJpsi_eta.push_back(temp_dimuLV.Eta());
-                REJpsi_y.push_back(temp_dimuLV.Rapidity());
-                REJpsi_phi.push_back(temp_dimuLV.Phi());
-                REJpsi_mass.push_back(dimuonMass);
-                REJpsi_massErr.push_back(dimuonMassErr);
-                REJpsi_vtxProb.push_back(dimuonVtxProb);
-                REJpsi_cstrVtxProb.push_back(JpsiCstrVtxProb);
-                REJpsi_ctau.push_back(ctau);
-                REJpsi_ctauErr.push_back(ctauErr);
-                REJpsi_LxyPV.push_back(LxyPV);
-                REJpsi_sigLxy.push_back(sigLxy);
-                REJpsi_X.push_back(vFitVertex->position().x());
-                REJpsi_Y.push_back(vFitVertex->position().y());
-                REJpsi_Z.push_back(vFitVertex->position().z());
-                REJpsi_muId1.push_back(muId1);
-                REJpsi_muId2.push_back(muId2);
-                REJpsi_passCut.push_back(dimuCutPartial && dimuonMass > 2.95 && dimuonMass < 3.25);
-                JpsiVtxTrees.push_back(dimuonVtxFitTree);// Save J/psi vertex tree
+            if(dimuonMass < 2.7 || dimuonMass > 3.5) continue;// Current dimuon matches J/psi
+            KinematicParticleFitter massConstraintFitter;
+            RefCountedKinematicTree JpsiVtxFitTree = massConstraintFitter.fit(JpsiMassCons, dimuonVtxFitTree);
+            Double_t JpsiCstrVtxProb = 0;
+            if(JpsiVtxFitTree->isValid()) {
+                JpsiVtxFitTree->movePointerToTheTop();
+                RefCountedKinematicVertex vFitCstrJpsiVtx = JpsiVtxFitTree->currentDecayVertex();
+                JpsiCstrVtxProb = ChiSquaredProbability((double)(vFitCstrJpsiVtx->chiSquared()), (double)(vFitCstrJpsiVtx->degreesOfFreedom()));
+                vout<<"J/psi mass constrained vertex fit probability: "<<JpsiCstrVtxProb<<endl;
             }
-            if(dimuonMass > 3.3 && dimuonMass < 4.1) {// Current dimuon matches psi(2S)
-                KinematicParticleFitter massConstraintFitter;
-                RefCountedKinematicTree psi2SVtxFitTree = massConstraintFitter.fit(psi2SMassCons, dimuonVtxFitTree);
-                Double_t psi2SCstrVtxProb = 0;
-                if(psi2SVtxFitTree->isValid()) {
-                    psi2SVtxFitTree->movePointerToTheTop();
-                    RefCountedKinematicVertex vFitCstrpsi2SVtx = psi2SVtxFitTree->currentDecayVertex();
-                    psi2SCstrVtxProb = ChiSquaredProbability((double)(vFitCstrpsi2SVtx->chiSquared()), (double)(vFitCstrpsi2SVtx->degreesOfFreedom()));
-                    vout<<"psi(2S) mass constrained vertex fit probability: "<<psi2SCstrVtxProb<<endl;
-                }
-                REpsi2S_pt.push_back(temp_dimuLV.Pt());
-                REpsi2S_eta.push_back(temp_dimuLV.Eta());
-                REpsi2S_y.push_back(temp_dimuLV.Rapidity());
-                REpsi2S_phi.push_back(temp_dimuLV.Phi());
-                REpsi2S_mass.push_back(dimuonMass);
-                REpsi2S_massErr.push_back(dimuonMassErr);
-                REpsi2S_vtxProb.push_back(dimuonVtxProb);
-                REpsi2S_cstrVtxProb.push_back(psi2SCstrVtxProb);
-                REpsi2S_ctau.push_back(ctau);
-                REpsi2S_ctauErr.push_back(ctauErr);
-                REpsi2S_LxyPV.push_back(LxyPV);
-                REpsi2S_sigLxy.push_back(sigLxy);
-                REpsi2S_X.push_back(vFitVertex->position().x());
-                REpsi2S_Y.push_back(vFitVertex->position().y());
-                REpsi2S_Z.push_back(vFitVertex->position().z());
-                REpsi2S_muId1.push_back(muId1);
-                REpsi2S_muId2.push_back(muId2);
-                REpsi2S_passCut.push_back(dimuCutPartial && dimuonMass > 3.35 && dimuonMass < 4.05);
-                psi2SVtxTrees.push_back(dimuonVtxFitTree);// Save psi(2S) vertex tree
+            REJpsi_pt.push_back(temp_dimuLV.Pt());
+            REJpsi_eta.push_back(temp_dimuLV.Eta());
+            REJpsi_y.push_back(temp_dimuLV.Rapidity());
+            REJpsi_phi.push_back(temp_dimuLV.Phi());
+            REJpsi_mass.push_back(dimuonMass);
+            REJpsi_massErr.push_back(dimuonMassErr);
+            REJpsi_vtxProb.push_back(dimuonVtxProb);
+            REJpsi_cstrVtxProb.push_back(JpsiCstrVtxProb);
+            REJpsi_ctau.push_back(ctau);
+            REJpsi_ctauErr.push_back(ctauErr);
+            REJpsi_LxyPV.push_back(LxyPV);
+            REJpsi_sigLxy.push_back(sigLxy);
+            REJpsi_X.push_back(vFitVertex->position().x());
+            REJpsi_Y.push_back(vFitVertex->position().y());
+            REJpsi_Z.push_back(vFitVertex->position().z());
+            REJpsi_muId1.push_back(muId1);
+            REJpsi_muId2.push_back(muId2);
+            REJpsi_passCut.push_back(dimuCutPartial && dimuonMass > 2.95 && dimuonMass < 3.25);
+            if(GEJpsi1_passID && ((GEmu_recoId[GEJpsi1_muId1] == i && GEmu_recoId[GEJpsi1_muId2] == j) || (GEmu_recoId[GEJpsi1_muId1] == j && GEmu_recoId[GEJpsi1_muId2] == i))) {
+                GEJpsi1_recoId = REJpsi_pt.size() - 1;
+                GEJpsi1_passVtx = REJpsi_passCut[GEJpsi1_recoId];
             }
+            if(GEJpsi2_passID && ((GEmu_recoId[GEJpsi2_muId1] == i && GEmu_recoId[GEJpsi2_muId2] == j) || (GEmu_recoId[GEJpsi2_muId1] == j && GEmu_recoId[GEJpsi2_muId2] == i))) {
+                GEJpsi2_recoId = REJpsi_pt.size() - 1;
+                GEJpsi2_passVtx = REJpsi_passCut[GEJpsi2_recoId];
+            }
+            JpsiVtxTrees.push_back(dimuonVtxFitTree);// Save J/psi vertex tree
         }
     }
-    int nJpsi = REJpsi_pt.size(), npsi2S = REpsi2S_pt.size();
-    vout<<"In this event: ["<<nJpsi<<"] J/psi, ["<<npsi2S<<"] psi(2S)"<<endl;
-    if(!nJpsi || !npsi2S) return;
-    // fillThisEvt = true;
+    int nJpsi = REJpsi_pt.size();
+    vout<<"In this event: ["<<nJpsi<<"] J/psi"<<endl;
+    if(nJpsi < 2) return;
     // check HLT
     if (evtPassHLT) vout<<"Event passed trigger selection"<<endl;
     // else return;
+    GEevt_passHLT = GEJpsi1_passVtx && GEJpsi2_passVtx && evtPassHLT;
     // four muon vertex fit and trigger matching
     for(int i = 0; i < nJpsi; i++) {
         if(!REJpsi_passCut[i]) continue;
         int i1 = REJpsi_muId1[i], i2 = REJpsi_muId2[i];
-        for(int j = 0; j < npsi2S; j++) {
-            if(!REpsi2S_passCut[j]) continue;
-            int j1 = REpsi2S_muId1[j], j2 = REpsi2S_muId2[j];
+        for(int j = i + 1; j < nJpsi; j++) {
+            if(!REJpsi_passCut[j]) continue;
+            int j1 = REJpsi_muId1[j], j2 = REJpsi_muId2[j];
             if(i1 == j1 || i1 == j2 || i2 == j1 || i2 == j2) continue;
-            RefCountedKinematicTree JpsiVtxTree = JpsiVtxTrees[i], psi2SVtxTree = psi2SVtxTrees[j];
-            JpsiVtxTree->movePointerToTheTop();
-            psi2SVtxTree->movePointerToTheTop();
+            RefCountedKinematicTree JpsiVtxTree1 = JpsiVtxTrees[i], JpsiVtxTree2 = JpsiVtxTrees[j];
+            JpsiVtxTree1->movePointerToTheTop();
+            JpsiVtxTree2->movePointerToTheTop();
             // trigger matching
             int nVtxMuon = triggerMatch(iEvent, hltR, selMuons[i1], Vtx) + triggerMatch(iEvent, hltR, selMuons[i2], Vtx);
             int nL3Muon = triggerMatch(iEvent, hltR, selMuons[j1], L3) + triggerMatch(iEvent, hltR, selMuons[j2], L3);
             bool evtTrgMatch = nVtxMuon >= 2 && nL3Muon >= 1;
+            nVtxMuon = triggerMatch(iEvent, hltR, selMuons[j1], Vtx) + triggerMatch(iEvent, hltR, selMuons[j2], Vtx);
+            nL3Muon = triggerMatch(iEvent, hltR, selMuons[i1], L3) + triggerMatch(iEvent, hltR, selMuons[i2], L3);
+            evtTrgMatch = evtTrgMatch || (nVtxMuon >= 2 && nL3Muon >= 1);
             if(evtTrgMatch) {
                 Total_events_trg_matched++;
-                // fillThisEvt = true;
             }
             // Four muon vertex fit, 2 methods provided
             // Method 1: fit 4 muons altogether
@@ -702,9 +823,9 @@ void NtupleMaker::fourMuonFit(
             vout<<"Four-muon vertex probability: "<<fourMuVtxProb<<endl;
             // Method 2: split into 2 dimuons
             vector<RefCountedKinematicParticle> fitDimus;
-            RefCountedKinematicParticle JpsiVtx = JpsiVtxTree->currentParticle(), psi2SVtx = psi2SVtxTree->currentParticle();
-            fitDimus.push_back(JpsiVtx);
-            fitDimus.push_back(psi2SVtx);
+            RefCountedKinematicParticle JpsiVtx1 = JpsiVtxTree1->currentParticle(), JpsiVtx2 = JpsiVtxTree2->currentParticle();
+            fitDimus.push_back(JpsiVtx1);
+            fitDimus.push_back(JpsiVtx2);
             KinematicParticleVertexFitter twoDimuFitter;
             RefCountedKinematicTree twoDimuVtxFitTree = twoDimuFitter.fit(fitDimus);
             bool passFitDimu = !twoDimuVtxFitTree->isEmpty();
@@ -715,8 +836,9 @@ void NtupleMaker::fourMuonFit(
             if(triggerMatch(iEvent, hltR, selMuons[j1], L1)) temp_L1muPt.push_back(REmu_pt[j1]);
             if(triggerMatch(iEvent, hltR, selMuons[j2], L1)) temp_L1muPt.push_back(REmu_pt[j2]);
             Double_t temp_L1muPtMax = temp_L1muPt.empty() ? 0 : *max_element(temp_L1muPt.begin(), temp_L1muPt.end());
-            Double_t d = calD(JpsiVtxTree->currentDecayVertex(), psi2SVtxTree->currentDecayVertex());
-            Double_t massChisq = SQUARE((REJpsi_mass[i] - JpsiMass) / REJpsi_massErr[i]) + SQUARE((REpsi2S_mass[j] - psi2SMass) / REpsi2S_massErr[j]);
+            Double_t d = calD(JpsiVtxTree1->currentDecayVertex(), JpsiVtxTree2->currentDecayVertex());
+            Double_t massChisq = SQUARE((REJpsi_mass[i] - JpsiMass) / REJpsi_massErr[i]) + SQUARE((REJpsi_mass[j] - JpsiMass) / REJpsi_massErr[j]);
+            bool samePV = (REmu_pvAsc[i1] == REmu_pvAsc[i2] && REmu_pvAsc[i2] == REmu_pvAsc[j1] && REmu_pvAsc[j1] == REmu_pvAsc[j2]);
             int pos = lower_bound(REevt_massChisq.begin(), REevt_massChisq.end(), massChisq, greater<Double_t>()) - REevt_massChisq.begin();
             REevt_fourMuMass.insert(REevt_fourMuMass.begin() + pos, fourMuMass);
             REevt_massChisq.insert(REevt_massChisq.begin() + pos, massChisq);
@@ -726,14 +848,22 @@ void NtupleMaker::fourMuonFit(
             REevt_X.insert(REevt_X.begin() + pos, fourMuX);
             REevt_Y.insert(REevt_Y.begin() + pos, fourMuY);
             REevt_Z.insert(REevt_Z.begin() + pos, fourMuZ);
-            REevt_JpsiId.insert(REevt_JpsiId.begin() + pos, i);
-            REevt_psi2SId.insert(REevt_psi2SId.begin() + pos, j);
+            if((double)rand() / (RAND_MAX + 1.0) > 0.5) {
+                REevt_JpsiId1.insert(REevt_JpsiId1.begin() + pos, i);
+                REevt_JpsiId2.insert(REevt_JpsiId2.begin() + pos, j);
+            }else {
+                REevt_JpsiId1.insert(REevt_JpsiId1.begin() + pos, j);
+                REevt_JpsiId2.insert(REevt_JpsiId2.begin() + pos, i);
+            }
             REevt_passHLT.insert(REevt_passHLT.begin() + pos, evtPassHLT);
             REevt_matchTrg.insert(REevt_matchTrg.begin() + pos, evtTrgMatch);
             REevt_fourMuFit.insert(REevt_fourMuFit.begin() + pos, passFitFourMu);
             REevt_twoDimuFit.insert(REevt_twoDimuFit.begin() + pos, passFitDimu);
-            REevt_samePV.insert(REevt_samePV.begin() + pos, (REmu_pvAsc[i1] == REmu_pvAsc[i2] && REmu_pvAsc[i2] == REmu_pvAsc[j1] && REmu_pvAsc[j1] == REmu_pvAsc[j2]));
-            fillThisEvt = true;
+            REevt_samePV.insert(REevt_samePV.begin() + pos, samePV);
+            if((GEJpsi1_recoId == i && GEJpsi2_recoId == j) || (GEJpsi1_recoId == j && GEJpsi2_recoId == i)) {
+                GEevt_matchTrg = GEevt_passHLT && evtTrgMatch && samePV;
+                GEevt_muPtMax = max(REmu_pt[i1], REmu_pt[j1]);
+            }
         }
     }
     return;
