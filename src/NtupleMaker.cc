@@ -398,6 +398,9 @@ void NtupleMaker::analyze(const edm::Event & iEvent, const edm::EventSetup & iSe
     GEJpsi2_recoId = -1;
     GEJpsi2_passVtx = false;
 
+    GEevt_fourMuMass = 0;
+    GEevt_muPtMax = 0;
+    GEevt_passHLT = false;
     GEevt_matchTrg = false;
     
     REmu_pt.clear();
