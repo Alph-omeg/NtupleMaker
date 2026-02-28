@@ -44,7 +44,7 @@ git clone https://github.com/Alph-omeg/NtupleMaker.git
 ```
 
 ## 3. Modify
-The following requirement in `src/BPH_NtupleMaker.py` applies for SPS process. Quote this line if dealing with DPS process.
+The following requirement in `src/NtupleMaker.cc` applies for SPS process. Quote this line if dealing with DPS process.
 ```c++
 // line 551
     if(temp_JpsiMom[i] != temp_JpsiMom[j]) continue;//only for SPS
